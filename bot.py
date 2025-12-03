@@ -1,13 +1,11 @@
 import os
+from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 # ---------------------------------------------------------------------
 # بخش ویرایش و افزودن کلمات (اینجا را در آینده ویرایش کنید)
 # ---------------------------------------------------------------------
-# در این دیکشنری، کلمات و پاسخ‌های خود را تعریف کنید.
-# برای اضافه کردن یک مورد جدید، کافیست یک بلوک جدید مثل بلوک "هخامنشیان" کپی کنید.
-
 RESPONSES = {
     "هخامنشیان": {
         "question": "آیا اطلاعات بیشتری درباره «هخامنشیان» می‌خواهید؟",
@@ -41,19 +39,23 @@ RESPONSES = {
 با وجود سقوط، میراث هخامنشیان هرگز از بین نرفت. ایده یک حکومت مرکزی مقتدر که به حقوق و فرهنگ‌های محلی احترام می‌گذارد، الگویی برای امپراتوری‌های بعدی شد. ساختار اداری، سیستم راه‌ها و نظام پستی آن‌ها تا قرن‌ها مورد استفاده قرار گرفت و نام ایران و پارس را در تاریخ جهان جاودانه کرد.
 """
     },
-    # برای اضافه کردن کلمه جدید، این بلوک بالا را کپی و متن داخلش را عوض کن
-    # مثال:
-    # "ساسانیان": {
-    #     "question": "آیا در مورد ساسانیان اطلاعات می‌خواهید؟",
-    #     "answer": "متن کامل در مورد ساسانیان..."
-    # },
 }
 
 # ---------------------------------------------------------------------
-# بخش اصلی ربات (به این بخش دست نزنید)
+# بخش اصلی ربات (از اینجا به بعد کد برای Webhook تغییر کرده است)
 # ---------------------------------------------------------------------
 
-# این تابع پیام‌های گروه را چک می‌کند
+# توکن و نام ربات را از متغیرهای محیطی می‌خوانیم
+TOKEN = os.environ.get("8395270552:AAGoGJUXh9zxIEcn1pKzN1VeXBtqiXPZXqo")
+APP_NAME = os.environ.get("KOYEB_APP_NAME")
+
+# ساخت اپلیکیشن Flask برای ایجاد وب سرور
+server = Flask(__name__)
+
+# ساخت اپلیکیشن ربات تلگرام
+application = Application.builder().token(TOKEN).build()
+
+# تابع برای چک کردن پیام‌های گروه (بدون تغییر)
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message_text = update.message.text
     for trigger_word, data in RESPONSES.items():
@@ -66,44 +68,50 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(data["question"], reply_markup=reply_markup)
-            break # بعد از پیدا کردن اولین کلمه، کار متوقف می‌شود
+            break
 
-# این تابع دکمه‌های شیشه‌ای را مدیریت می‌کند
+# تابع برای مدیریت دکمه‌ها (بدون تغییر)
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    await query.answer() # به تلگرام می‌گوید که کلیک را دریافت کرده است
-
+    await query.answer()
     action, trigger_word = query.data.split(":", 1)
-
     if action == "show":
-        # متن اصلی را به عنوان یک پیام جدید ارسال می‌کند
         response_text = RESPONSES[trigger_word]["answer"]
         await query.message.reply_text(response_text, parse_mode='Markdown')
-        # پیام دکمه‌ها را پاک می‌کند تا گروه شلوغ نشود
         await query.message.delete()
-    
     elif action == "delete":
-        # پیام دکمه‌ها را پاک می‌کند
         await query.message.delete()
 
-def main() -> None:
-    # توکن ربات را از تنظیمات Render می‌خواند
-    TOKEN = os.environ.get("8395270552:AAGoGJUXh9zxIEcn1pKzN1VeXBtqiXPZXqo")
-    if not TOKEN:
-        print("خطا: توکن ربات در تنظیمات Render پیدا نشد!")
-        return
+# یک مسیر برای سرور تعریف می‌کنیم که تلگرام به آن پیام‌ها را بفرستد
+@server.route(f"/{TOKEN}", methods=["POST"])
+async def webhook_handler():
+    update_data = request.get_json()
+    update = Update.de_json(update_data, application.bot)
+    await application.process_update(update)
+    return "ok"
 
-    # ساخت اپلیکیشن ربات
-    application = Application.builder().token(TOKEN).build()
+# یک مسیر ساده برای اینکه ببینیم سرور آنلاین است
+@server.route("/")
+def index():
+    return "Hello, I am the bot server!"
 
+async def main():
     # ثبت کردن کنترل‌کننده‌ها
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     application.add_handler(CallbackQueryHandler(button_handler))
 
-    # اجرای ربات
-    print("ربات با موفقیت آنلاین شد و آماده دریافت پیام است...")
-    application.run_polling()
+    # تنظیم Webhook
+    # Koyeb آدرس عمومی را در این متغیر قرار می‌دهد
+    webhook_url = f"https://{APP_NAME}.koyeb.app/{TOKEN}"
+    await application.bot.set_webhook(url=webhook_url)
+    print(f"Webhook با موفقیت روی آدرس {webhook_url} تنظیم شد.")
+
+    # اجرای وب سرور Flask
+    # Koyeb پورت را در این متغیر قرار می‌دهد
+    port = int(os.environ.get('PORT', 8000))
+    print("وب سرور در حال اجراست...")
+    server.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
-    main()
-
+    import asyncio
+    asyncio.run(main())
